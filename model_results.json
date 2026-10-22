@@ -1,0 +1,206 @@
+{
+    "dataset_info": {
+        "filename": "water_potability.csv",
+        "source": "https://www.kaggle.com/datasets/adityakadiwal/water-potability",
+        "total_records": 3276,
+        "total_columns": 10,
+        "feature_count": 9,
+        "features": [
+            "ph",
+            "Hardness",
+            "Solids",
+            "Chloramines",
+            "Sulfate",
+            "Conductivity",
+            "Organic_carbon",
+            "Trihalomethanes",
+            "Turbidity"
+        ],
+        "target": "Potability",
+        "missing_values": {
+            "ph": 491,
+            "Hardness": 0,
+            "Solids": 0,
+            "Chloramines": 0,
+            "Sulfate": 781,
+            "Conductivity": 0,
+            "Organic_carbon": 0,
+            "Trihalomethanes": 162,
+            "Turbidity": 0
+        },
+        "duplicate_records": 0,
+        "class_distribution": {
+            "Non-Potable (0)": 1998,
+            "Potable (1)": 1278
+        },
+        "train_size": 2620,
+        "test_size": 656,
+        "split_ratio": "80% Training / 20% Testing (Stratified)"
+    },
+    "feature_statistics": {
+        "ph": {
+            "mean": 7.080794504276835,
+            "std": 1.5943195187088104,
+            "median": 7.036752103833548,
+            "min": 0.0,
+            "max": 13.999999999999998
+        },
+        "Hardness": {
+            "mean": 196.36949601730151,
+            "std": 32.879761476294156,
+            "median": 196.96762686363076,
+            "min": 47.432,
+            "max": 323.124
+        },
+        "Solids": {
+            "mean": 22014.092526077104,
+            "std": 8768.570827785927,
+            "median": 20927.833606520187,
+            "min": 320.942611274359,
+            "max": 61227.19600771213
+        },
+        "Chloramines": {
+            "mean": 7.122276793425786,
+            "std": 1.5830848890397096,
+            "median": 7.130298973883081,
+            "min": 0.3520000000000003,
+            "max": 13.127000000000002
+        },
+        "Sulfate": {
+            "mean": 333.7757766108135,
+            "std": 41.416840461672706,
+            "median": 333.073545745888,
+            "min": 129.00000000000003,
+            "max": 481.0306423059972
+        },
+        "Conductivity": {
+            "mean": 426.20511068255325,
+            "std": 80.8240640511118,
+            "median": 421.8849682800544,
+            "min": 181.483753985146,
+            "max": 753.3426195583046
+        },
+        "Organic_carbon": {
+            "mean": 14.284970247677318,
+            "std": 3.308161999126874,
+            "median": 14.218337937208588,
+            "min": 2.1999999999999886,
+            "max": 28.30000000000001
+        },
+        "Trihalomethanes": {
+            "mean": 66.39629294676803,
+            "std": 16.175008422218657,
+            "median": 66.62248509808484,
+            "min": 0.7379999999999995,
+            "max": 124.0
+        },
+        "Turbidity": {
+            "mean": 3.966786169791058,
+            "std": 0.7803824084854124,
+            "median": 3.955027562993039,
+            "min": 1.45,
+            "max": 6.739
+        }
+    },
+    "presentation_presets": {
+        "potable_sample": {
+            "ph": 9.445129837868656,
+            "Hardness": 145.80540244684383,
+            "Solids": 13168.529155675998,
+            "Chloramines": 9.44447108562294,
+            "Sulfate": 310.583373858597,
+            "Conductivity": 592.6590209759507,
+            "Organic_carbon": 8.606396746986945,
+            "Trihalomethanes": 77.57745951035697,
+            "Turbidity": 3.8751652466165463
+        },
+        "non_potable_sample": {
+            "ph": 8.316765884214679,
+            "Hardness": 214.3733940856225,
+            "Solids": 22018.41744077529,
+            "Chloramines": 8.05933237743854,
+            "Sulfate": 356.88613564305666,
+            "Conductivity": 363.2665161642437,
+            "Organic_carbon": 18.436524495493305,
+            "Trihalomethanes": 100.34167436508008,
+            "Turbidity": 4.628770536837084
+        }
+    },
+    "models": {
+        "logistic_regression": {
+            "name": "Logistic Regression (Baseline)",
+            "description": "Linear classifier serving as an interpretable baseline.",
+            "accuracy": 0.6097560975609756,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1_score": 0.0,
+            "confusion_matrix": [
+                [
+                    400,
+                    0
+                ],
+                [
+                    256,
+                    0
+                ]
+            ]
+        },
+        "random_forest_baseline": {
+            "name": "Random Forest Classifier (Baseline)",
+            "description": "Ensemble of 100 decision trees with default parameters.",
+            "accuracy": 0.663109756097561,
+            "precision": 0.6446280991735537,
+            "recall": 0.3046875,
+            "f1_score": 0.41379310344827586,
+            "confusion_matrix": [
+                [
+                    357,
+                    43
+                ],
+                [
+                    178,
+                    78
+                ]
+            ]
+        },
+        "random_forest_optimized": {
+            "name": "Random Forest Classifier (Optimized)",
+            "description": "Tuned ensemble evaluated with 5-fold cross-validation on training data.",
+            "accuracy": 0.6615853658536586,
+            "precision": 0.6416666666666667,
+            "recall": 0.30078125,
+            "f1_score": 0.4095744680851064,
+            "confusion_matrix": [
+                [
+                    357,
+                    43
+                ],
+                [
+                    179,
+                    77
+                ]
+            ],
+            "best_parameters": {
+                "max_depth": 20,
+                "min_samples_split": 5,
+                "n_estimators": 100
+            },
+            "best_cv_accuracy": 0.6729007633587786
+        }
+    },
+    "selected_model": {
+        "name": "Random Forest Classifier (Optimized)",
+        "selection_criterion": "Selected based on test F1-score and multi-class capability. Logistic Regression achieved 60.98% accuracy by predicting only the majority non-potable class (F1=0.00), while Random Forest effectively captured complex non-linear chemical relationships with a test accuracy of 66.16% and F1-score of 0.4096 (CV accuracy 67.29%).",
+        "feature_importances": {
+            "Sulfate": 0.13616644951879972,
+            "ph": 0.13499533592889568,
+            "Hardness": 0.11846028070743211,
+            "Chloramines": 0.11556795490932488,
+            "Solids": 0.11486070268679005,
+            "Conductivity": 0.09704157007188352,
+            "Organic_carbon": 0.09567174809516767,
+            "Turbidity": 0.0937524972222094,
+            "Trihalomethanes": 0.09348346085949692
+        }
+    }
+}
