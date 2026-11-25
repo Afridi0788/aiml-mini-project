@@ -590,9 +590,10 @@ elif navigation == "📊 Dataset Analysis":
     st.pyplot(fig_corr)
     st.info(
         "💡 **Key Insight for Presentation:** The correlation coefficients between individual features and the target "
-        "`Potability` are nearly zero (ranging from -0.03 to +0.02). This explains why a linear classifier like "
-        "Logistic Regression struggles, and why non-linear tree-based ensembles (Random Forest) are necessary to capture "
-        "multi-feature chemical interactions."
+        "`Potability` are nearly zero (ranging from -0.03 to +0.03). This explains why a linear classifier like "
+        "Logistic Regression has almost no predictive power (ROC-AUC about 0.55). Non-linear models (Random Forest, SVM, "
+        "Decision Tree) do somewhat better, but no model gets far above 0.66 ROC-AUC, so each feature carries little "
+        "information by itself."
     )
 
     st.markdown("---")
@@ -980,24 +981,33 @@ elif navigation == "📖 Academic Report & Viva Guide":
         - **Feature Scaling:** `StandardScaler` standardizes features to zero mean and unit variance.
         - **Train/Test Split:** 80% training (2,620 samples) and 20% testing (656 samples) using **Stratified Splitting** to preserve class balance.
         - **Data Leakage Prevention:** The preprocessing pipeline is fitted strictly on the training set (`X_train`) and only used to transform the test set (`X_test`).
+        """)
 
+        # Sections 4-7 are built from model_results.json so the numbers always match the latest training run
+        _orig_lr = results["models"]["logistic_regression"]
+        _orig_rf = results["models"]["random_forest_optimized"]
+        _imp = results["improved_models"]
+        _sel = _imp[results["selected_model"]["key"]]
+        _sel_params = ", ".join(f"{k}={v}" for k, v in _sel["best_parameters"].items())
+        st.markdown(f"""
         #### 4. Model Development
-        - **Model A (Baseline):** Logistic Regression — linear classification benchmark.
-        - **Model B (Ensemble):** Random Forest Classifier — non-linear ensemble composed of decision trees.
-        - **Pipeline Integration:** Models are packaged in Scikit-learn Pipelines combining imputation, scaling, and classification.
+        - **Original models:** Logistic Regression (linear baseline) and Random Forest (non-linear ensemble).
+        - **Syllabus bake-off:** 7 classifiers on the same split: Logistic Regression, Decision Tree, KNN, Naive Bayes, SVM (RBF), Random Forest and AdaBoost.
+        - **Pipeline Integration:** Every model sits in a Scikit-learn Pipeline (median imputation, scaling, classifier).
 
         #### 5. Performance Evaluation
-        - Evaluated on identical held-out test data (656 samples).
-        - Measured Accuracy, Precision, Recall, F1-Score, and Confusion Matrix.
-        - **Key Discovery:** Logistic Regression achieved 60.98% accuracy by predicting exclusively class 0 (F1=0.00). Random Forest achieved 66.16% test accuracy and 0.4096 F1-score, confirming non-linear relationships.
+        - Evaluated on identical held-out test data ({results["dataset_info"]["test_size"]} samples) with Accuracy, Precision, Recall, F1-Score, ROC-AUC and Confusion Matrix.
+        - **Original result:** Logistic Regression reached {_orig_lr["accuracy"]*100:.2f}% accuracy only by predicting class 0 for every sample (F1 = {_orig_lr["f1_score"]:.2f}); the tuned Random Forest reached {_orig_rf["accuracy"]*100:.2f}% accuracy but found only {_orig_rf["recall"]*100:.0f}% of potable samples (F1 = {_orig_rf["f1_score"]:.4f}).
+        - **Key point:** the majority-class baseline already scores 61% accuracy, so accuracy alone is a weak measure here.
 
         #### 6. Model Optimization
-        - Performed hyperparameter tuning using `GridSearchCV` on the training dataset with 5-fold cross-validation.
-        - Parameters evaluated: `n_estimators` [100, 200], `max_depth` [None, 10, 20], `min_samples_split` [2, 5, 10].
-        - Optimal parameters: `{'max_depth': 20, 'min_samples_split': 5, 'n_estimators': 100}` yielding 67.29% mean 5-fold CV accuracy.
+        - **Class imbalance:** `class_weight='balanced'` for the models that support it.
+        - **Tuning:** `GridSearchCV` with `scoring='f1'` and 5-fold `StratifiedKFold`, run on training data only.
+        - **Selected model:** {results["selected_model"]["name"]}, chosen by the highest cross-validation F1 ({_sel["cv_f1"]:.4f}) with parameters `{_sel_params}`. Test F1 = {_sel["f1_score"]:.4f}, recall = {_sel["recall"]:.4f}, ROC-AUC = {_sel["roc_auc"]:.4f}.
 
         #### 7. Result Analysis & Conclusion
-        - Random Forest (Optimized) was chosen as the production model due to its balanced predictive ability across both potable and non-potable samples.
+        - Balancing the classes raised potable recall (Random Forest: {_orig_rf["recall"]:.2f} to {_imp["random_forest"]["recall"]:.2f}) at the cost of accuracy ({_orig_rf["accuracy"]*100:.1f}% to {_imp["random_forest"]["accuracy"]*100:.1f}%).
+        - The best models have ROC-AUC of only about 0.64-0.66, and PCA/clustering show no natural split between the classes, so the features carry limited information about the label. The model is a screening aid, not a safety test.
         """)
 
     with doc_tab2:
@@ -1009,8 +1019,8 @@ elif navigation == "📖 Academic Report & Viva Guide":
         | :--- | :--- | :--- |
         | **0:00 - 1:30** | **Slide 1: Introduction & Problem Statement** | "Good morning professors. Today I am presenting AquaGuard AI, a machine learning system designed to classify water samples as potable or non-potable based on 9 physicochemical parameters like pH, sulfates, and chloramines." |
         | **1:30 - 3:00** | **Slide 2: Dataset & Preprocessing** | "We used the real-world Kaggle Water Potability dataset of 3,276 records. Missing values in Sulfate and pH were handled with median imputation. We split the data 80/20 with stratified sampling and strictly prevented data leakage by fitting transformers only on training data." |
-        | **3:00 - 5:00** | **Slide 3: Algorithms & The Linear Failure Point** | "We compared Logistic Regression against Random Forest. Here is our major technical finding: water potability does not have a linear decision boundary. Logistic Regression failed with 0% recall, whereas Random Forest successfully modeled the complex non-linear interactions." |
-        | **5:00 - 6:30** | **Slide 4: Hyperparameter Optimization** | "Using 5-fold GridSearchCV, we tuned tree depth, split thresholds, and estimators. The optimized model achieved 67.29% cross-validation accuracy and 66.16% test accuracy, with Sulfate and pH emerging as the top predictive features." |
+        | **3:00 - 5:00** | **Slide 3: Algorithms & Class Imbalance** | "We compared seven classifiers from our syllabus on the same split. Our original Logistic Regression scored 61% accuracy only by predicting non-potable every time, which is the majority-class baseline. So we used F1-score and ROC-AUC, not just accuracy." |
+        | **5:00 - 6:30** | **Slide 4: Optimization & Unsupervised Analysis** | "We used class weights and GridSearchCV with stratified 5-fold cross-validation scored on F1. The best cross-validation F1 came from the SVM. PCA and K-Means show potable and non-potable samples overlap heavily, which explains why scores stay modest." |
         | **6:30 - 8:30** | **Slide 5: Live System Demonstration** | Open the **Water Quality Predictor** tab. Click 'Load Known Potable Sample' and click Predict. Show the probability output and model badge. Then load 'Non-Potable Sample' to show contrast. Point out the academic disclaimer. |
         | **8:30 - 10:00** | **Slide 6: Conclusion & Viva Wrap-up** | "AquaGuard AI demonstrates how machine learning pipelines can automate preliminary water analysis while maintaining strict academic and scientific ethics. Thank you, I am now open for questions." |
         """)
@@ -1018,8 +1028,17 @@ elif navigation == "📖 Academic Report & Viva Guide":
     with doc_tab3:
         st.markdown("### 🎯 Top College Viva Questions & Answers")
         st.markdown("""
-        **Q1: Why did Logistic Regression achieve 60.98% accuracy but 0.00 F1-score?**
-        > *Answer:* The dataset has 61% non-potable samples and 39% potable samples. Because the physical parameters have non-linear and near-zero Pearson correlations with the target, the linear hyperplane could not find a separating line and simply predicted all instances as the majority class (0). This yields 60.98% accuracy by default, but zero recall and zero F1-score.
+        **Q1: Why did the original Logistic Regression achieve 60.98% accuracy but 0.00 F1-score?**
+        > *Answer:* The dataset has 61% non-potable and 39% potable samples. The unweighted model predicted class 0 for every sample, which gives 60.98% accuracy by default but zero recall and zero F1. Accuracy alone is therefore misleading on imbalanced data.
+
+        **Q1b: What did you change to handle the imbalance?**
+        > *Answer:* We used `class_weight='balanced'` where scikit-learn supports it, tuned with GridSearchCV on F1 using stratified 5-fold cross-validation, and reported ROC-AUC as well. Recall for potable water went up, and accuracy went down; that trade-off is shown in the Model Performance tab.
+
+        **Q1c: Why did you pick the SVM instead of the model with the best test score?**
+        > *Answer:* The model was chosen by cross-validation F1 on the training data only. Choosing by test score would leak the test set into model selection. The top models are close, so the choice is not a large difference.
+
+        **Q1d: What does the PCA and clustering analysis tell you?**
+        > *Answer:* The first two principal components explain only about a quarter of the variance, the two classes overlap, K-Means silhouette is about 0.08 and the Adjusted Rand Index is close to 0. So the features do not form natural potable/non-potable groups, which fits the modest supervised scores.
 
         **Q2: How did you ensure there was no data leakage in your preprocessing?**
         > *Answer:* We used Scikit-Learn Pipelines where `SimpleImputer` and `StandardScaler` were fitted exclusively on the 80% training set (`X_train`). The held-out 20% test set was only transformed using the training parameters, ensuring test statistics never leaked into model training.
