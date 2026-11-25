@@ -134,6 +134,36 @@ def load_trained_model():
     return None
 
 
+def metrics_row(tag, m):
+    """One row of the comparison table from a metrics dictionary."""
+    return {
+        "Stage": tag,
+        "Model": m["name"],
+        "Accuracy": f"{m['accuracy'] * 100:.2f}%",
+        "Precision": f"{m['precision']:.4f}",
+        "Recall": f"{m['recall']:.4f}",
+        "F1-Score": f"{m['f1_score']:.4f}",
+        "ROC-AUC": f"{m['roc_auc']:.4f}",
+    }
+
+
+def show_confusion(title, m, cmap):
+    """Draw one confusion-matrix heatmap with TN/FP/FN/TP caption."""
+    cm = np.array(m["confusion_matrix"])
+    fig, ax = plt.subplots(figsize=(5, 3.6))
+    sns.heatmap(
+        cm, annot=True, fmt="d", cmap=cmap, cbar=False, ax=ax,
+        xticklabels=["Pred Non-Potable (0)", "Pred Potable (1)"],
+        yticklabels=["Actual Non-Potable (0)", "Actual Potable (1)"],
+    )
+    ax.set_title(f"{title}\n(Accuracy {m['accuracy']*100:.2f}%, Recall {m['recall']:.2f})", fontsize=10, fontweight="bold")
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+    tn, fp, fn, tp = cm.ravel()
+    st.caption(f"TN: {tn} | FP: {fp} | FN: {fn} | TP: {tp}")
+
+
 df = load_dataset()
 results = load_results()
 model_pipeline = load_trained_model()
@@ -182,7 +212,7 @@ with st.sidebar:
     st.markdown("### ⚙️ System Status")
     st.success("✅ Dataset Loaded (3,276 records)")
     st.success("✅ Model Pipeline Ready")
-    st.caption("Algorithm: Random Forest Classifier (Tuned)")
+    st.caption(f"Algorithm: {results['selected_model']['name']}")
     st.caption("College Project Edition • 100% Genuine ML Logic")
 
 
@@ -528,170 +558,114 @@ elif navigation == "📊 Dataset Analysis":
 elif navigation == "🔬 Model Performance & Comparison":
     st.markdown('<div class="main-title">🔬 Model Performance & Comparison</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="sub-title">Honest, un-hardcoded evaluation results comparing Logistic Regression and Random Forest.</div>',
+        '<div class="sub-title">Imbalance-aware retraining: original models vs class-weighted, F1-tuned models '
+        '(all numbers come from <code>train_model.py</code> and are evaluated on the same held-out test set).</div>',
         unsafe_allow_html=True,
     )
 
-    models_data = results["models"]
-    lr = models_data["logistic_regression"]
-    rf_base = models_data["random_forest_baseline"]
-    rf_opt = models_data["random_forest_optimized"]
+    test_size = results["dataset_info"]["test_size"]
+    original_models = results["models"]
+    improved_models = results["improved_models"]
+    tuning = results["tuning"]
 
-    # Model Comparison Table
-    st.markdown("### 1. Model Comparison Table (Held-Out Test Set: 656 Samples)")
-    comparison_df = pd.DataFrame([
-        {
-            "Algorithm": lr["name"],
-            "Accuracy": f"{lr['accuracy'] * 100:.2f}%",
-            "Precision": f"{lr['precision']:.4f}",
-            "Recall": f"{lr['recall']:.4f}",
-            "F1-Score": f"{lr['f1_score']:.4f}",
-            "Key Observation": "Linear baseline; predicts majority class only due to non-linear chemical features.",
-        },
-        {
-            "Algorithm": rf_base["name"],
-            "Accuracy": f"{rf_base['accuracy'] * 100:.2f}%",
-            "Precision": f"{rf_base['precision']:.4f}",
-            "Recall": f"{rf_base['recall']:.4f}",
-            "F1-Score": f"{rf_base['f1_score']:.4f}",
-            "Key Observation": "Default ensemble of 100 trees; successfully classifies non-linear combinations.",
-        },
-        {
-            "Algorithm": rf_opt["name"],
-            "Accuracy": f"{rf_opt['accuracy'] * 100:.2f}%",
-            "Precision": f"{rf_opt['precision']:.4f}",
-            "Recall": f"{rf_opt['recall']:.4f}",
-            "F1-Score": f"{rf_opt['f1_score']:.4f}",
-            "Key Observation": f"Tuned via 5-Fold CV (CV Acc: {rf_opt['best_cv_accuracy']*100:.2f}%); max_depth=20.",
-        },
-    ])
-    st.table(comparison_df)
+    # ---- 1. Before vs After table -------------------------------------------
+    st.markdown(f"### 1. Before vs After (Held-Out Test Set: {test_size} Samples)")
+    st.caption(
+        f"**Before** = original approach (no class weights, tuned for accuracy). "
+        f"**After** = `class_weight='balanced'` where supported, GridSearchCV scoring = **{tuning['scoring'].upper()}**, "
+        f"cv = {tuning['cv']}."
+    )
+    rows = []
+    for tag, m in [
+        ("Before", original_models["logistic_regression"]),
+        ("Before", original_models["random_forest_baseline"]),
+        ("Before", original_models["random_forest_optimized"]),
+        ("After", improved_models["logistic_regression"]),
+        ("After", improved_models["random_forest"]),
+    ]:
+        rows.append(metrics_row(tag, m))
+    st.table(pd.DataFrame(rows))
 
+    # ---- 2. Grouped bar chart: RF before vs after -----------------------------
     st.markdown("---")
+    st.markdown("#### 2. Random Forest: Before vs After")
+    metric_keys = ["accuracy", "precision", "recall", "f1_score", "roc_auc"]
+    metric_labels = ["Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"]
+    rf_before = original_models["random_forest_optimized"]
+    rf_after = improved_models["random_forest"]
 
-    # Comparative Visualizations
-    chart_col1, chart_col2 = st.columns(2)
+    fig_cmp, ax_cmp = plt.subplots(figsize=(8, 4))
+    x_pos = np.arange(len(metric_keys))
+    width = 0.38
+    bars_b = ax_cmp.bar(x_pos - width / 2, [rf_before[k] for k in metric_keys], width, label="Before (accuracy-tuned)", color="#94a3b8")
+    bars_a = ax_cmp.bar(x_pos + width / 2, [rf_after[k] for k in metric_keys], width, label="After (balanced + F1-tuned)", color="#0284c7")
+    for bar in list(bars_b) + list(bars_a):
+        ax_cmp.annotate(f"{bar.get_height():.2f}", xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                        xytext=(0, 3), textcoords="offset points", ha="center", fontsize=8)
+    ax_cmp.set_xticks(x_pos)
+    ax_cmp.set_xticklabels(metric_labels)
+    ax_cmp.set_ylim(0, 1)
+    ax_cmp.legend()
+    sns.despine()
+    plt.tight_layout()
+    st.pyplot(fig_cmp)
+    st.caption(
+        f"Recall for potable water rises from {rf_before['recall']:.2f} to {rf_after['recall']:.2f} and F1 from "
+        f"{rf_before['f1_score']:.2f} to {rf_after['f1_score']:.2f}, but accuracy drops from "
+        f"{rf_before['accuracy']*100:.1f}% to {rf_after['accuracy']*100:.1f}%. "
+        "This is the usual trade-off: the model now catches more potable samples at the cost of more false alarms."
+    )
 
-    with chart_col1:
-        st.markdown("#### 2. Accuracy Comparison Across Algorithms")
-        fig_acc, ax_acc = plt.subplots(figsize=(6, 4))
-        algo_names = ["Logistic Reg.", "RF (Baseline)", "RF (Tuned)"]
-        accuracies = [lr["accuracy"] * 100, rf_base["accuracy"] * 100, rf_opt["accuracy"] * 100]
-        colors = ["#94a3b8", "#38bdf8", "#0284c7"]
-
-        bars = ax_acc.bar(algo_names, accuracies, color=colors, width=0.5, edgecolor="#0f172a")
-        ax_acc.set_ylabel("Test Accuracy (%)", fontsize=10)
-        ax_acc.set_ylim(0, 85)
-        for bar in bars:
-            height = bar.get_height()
-            ax_acc.annotate(
-                f"{height:.2f}%",
-                xy=(bar.get_x() + bar.get_width() / 2, height),
-                xytext=(0, 4),
-                textcoords="offset points",
-                ha="center",
-                va="bottom",
-                fontweight="bold",
-            )
-        sns.despine()
-        plt.tight_layout()
-        st.pyplot(fig_acc)
-
-    with chart_col2:
-        st.markdown("#### 3. F1-Score Comparison (Balanced Evaluation)")
-        fig_f1, ax_f1 = plt.subplots(figsize=(6, 4))
-        f1_scores = [lr["f1_score"], rf_base["f1_score"], rf_opt["f1_score"]]
-        f1_bars = ax_f1.bar(algo_names, f1_scores, color=["#cbd5e1", "#818cf8", "#4f46e5"], width=0.5, edgecolor="#1e1b4b")
-        ax_f1.set_ylabel("F1-Score", fontsize=10)
-        ax_f1.set_ylim(0, 0.6)
-        for bar in f1_bars:
-            height = bar.get_height()
-            ax_f1.annotate(
-                f"{height:.4f}",
-                xy=(bar.get_x() + bar.get_width() / 2, height),
-                xytext=(0, 4),
-                textcoords="offset points",
-                ha="center",
-                va="bottom",
-                fontweight="bold",
-            )
-        sns.despine()
-        plt.tight_layout()
-        st.pyplot(fig_f1)
-
+    # ---- 3. Confusion matrices --------------------------------------------------
     st.markdown("---")
+    st.markdown(f"#### 3. Confusion Matrices (Held-Out Test Set: {test_size} Samples)")
+    cm_row1 = st.columns(2)
+    with cm_row1[0]:
+        show_confusion("Logistic Regression: Before", original_models["logistic_regression"], "Blues")
+    with cm_row1[1]:
+        show_confusion("Logistic Regression: After (balanced)", improved_models["logistic_regression"], "Blues")
+    cm_row2 = st.columns(2)
+    with cm_row2[0]:
+        show_confusion("Random Forest: Before (accuracy-tuned)", rf_before, "Greens")
+    with cm_row2[1]:
+        show_confusion("Random Forest: After (balanced, F1-tuned)", rf_after, "Greens")
 
-    # Confusion Matrix Visualizations Side-by-Side
-    st.markdown("#### 4. Confusion Matrices (Held-Out Test Set: 656 Samples)")
-    cm_col1, cm_col2 = st.columns(2)
-
-    with cm_col1:
-        st.markdown("##### Logistic Regression Confusion Matrix")
-        fig_cm_lr, ax_cm_lr = plt.subplots(figsize=(5, 3.8))
-        sns.heatmap(
-            np.array(lr["confusion_matrix"]),
-            annot=True,
-            fmt="d",
-            cmap="Blues",
-            cbar=False,
-            xticklabels=["Pred Non-Potable (0)", "Pred Potable (1)"],
-            yticklabels=["Actual Non-Potable (0)", "Actual Potable (1)"],
-            ax=ax_cm_lr,
-        )
-        plt.title(f"Logistic Regression (Accuracy: {lr['accuracy']*100:.2f}%)", fontweight="bold")
-        plt.tight_layout()
-        st.pyplot(fig_cm_lr)
-        st.caption("Notice: 0 true positives for Potable water. The linear model predicted all 656 samples as Class 0.")
-
-    with cm_col2:
-        st.markdown("##### Selected Model: Random Forest (Optimized)")
-        fig_cm_rf, ax_cm_rf = plt.subplots(figsize=(5, 3.8))
-        sns.heatmap(
-            np.array(rf_opt["confusion_matrix"]),
-            annot=True,
-            fmt="d",
-            cmap="Greens",
-            cbar=False,
-            xticklabels=["Pred Non-Potable (0)", "Pred Potable (1)"],
-            yticklabels=["Actual Non-Potable (0)", "Actual Potable (1)"],
-            ax=ax_cm_rf,
-        )
-        plt.title(f"Random Forest Optimized (Accuracy: {rf_opt['accuracy']*100:.2f}%)", fontweight="bold")
-        plt.tight_layout()
-        st.pyplot(fig_cm_rf)
-        st.caption("True Negatives: 357 | False Positives: 43 | False Negatives: 179 | True Positives: 77")
-
+    # ---- 4. Feature importances ---------------------------------------------------
     st.markdown("---")
-
-    # Feature Importances & Optimization Details
-    st.markdown("#### 5. Feature Importances (From Selected Random Forest)")
-    feat_imps = results["selected_model"]["feature_importances"]
+    selected = results["selected_model"]
+    st.markdown(f"#### 4. Feature Importances (Selected Model: {selected['name']})")
+    feat_imps = selected["feature_importances"]
     feat_df = pd.DataFrame({"Feature": list(feat_imps.keys()), "Importance": list(feat_imps.values())})
 
     fig_imp, ax_imp = plt.subplots(figsize=(8, 4))
     sns.barplot(x="Importance", y="Feature", data=feat_df, palette="Blues_r", ax=ax_imp)
     ax_imp.set_title("Relative Predictive Power of Water Quality Parameters", fontweight="bold")
-    ax_imp.set_xlabel("Gini Feature Importance")
+    ax_imp.set_xlabel("Importance (drop in F1 when the feature is shuffled)")
     sns.despine()
     plt.tight_layout()
     st.pyplot(fig_imp)
-    st.caption("Sulfate, pH, Hardness, and Chloramines emerge as the leading predictive indicators.")
+    top3 = ", ".join(list(feat_imps.keys())[:3])
+    st.caption(f"Method: {selected['importance_method']}. Top 3 features: {top3}.")
+    st.info(f"**Why this model?** {selected['selection_criterion']}")
 
     st.markdown("---")
-    st.markdown("#### 6. Educational Metrics Explanation (Viva Ready)")
-    exp1, exp2, exp3, exp4 = st.columns(4)
+    st.markdown("#### 5. Educational Metrics Explanation (Viva Ready)")
+    exp1, exp2, exp3, exp4, exp5 = st.columns(5)
     with exp1:
         st.markdown("**Accuracy**")
         st.caption("Overall proportion of correct predictions: `(TP + TN) / Total`. Can be misleading on imbalanced datasets.")
     with exp2:
         st.markdown("**Precision**")
-        st.caption("Of all samples predicted as Potable, how many were truly potable: `TP / (TP + FP)`. Minimizes false alarms.")
+        st.caption("Of all samples predicted as Potable, how many were truly potable: `TP / (TP + FP)`.")
     with exp3:
         st.markdown("**Recall (Sensitivity)**")
-        st.caption("Of all actual potable water samples, how many did the model capture: `TP / (TP + FN)`. Measures coverage.")
+        st.caption("Of all actual potable samples, how many did the model find: `TP / (TP + FN)`.")
     with exp4:
         st.markdown("**F1-Score**")
-        st.caption("Harmonic mean of Precision and Recall: `2 * (P * R) / (P + R)`. The gold standard for balanced evaluation.")
+        st.caption("Harmonic mean of Precision and Recall: `2 * (P * R) / (P + R)`. Better than accuracy when classes are imbalanced.")
+    with exp5:
+        st.markdown("**ROC-AUC**")
+        st.caption("Chance that a random potable sample gets a higher score than a random non-potable one. 0.5 = random guessing, 1.0 = perfect.")
 
 
 # -----------------------------------------------------------------------------

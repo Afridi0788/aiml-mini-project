@@ -46,9 +46,9 @@
             "max": 13.999999999999998
         },
         "Hardness": {
-            "mean": 196.36949601730151,
+            "mean": 196.36949601730154,
             "std": 32.879761476294156,
-            "median": 196.96762686363076,
+            "median": 196.96762686363073,
             "min": 47.432,
             "max": 323.124
         },
@@ -67,16 +67,16 @@
             "max": 13.127000000000002
         },
         "Sulfate": {
-            "mean": 333.7757766108135,
+            "mean": 333.77577661081347,
             "std": 41.416840461672706,
             "median": 333.073545745888,
             "min": 129.00000000000003,
-            "max": 481.0306423059972
+            "max": 481.03064230599716
         },
         "Conductivity": {
             "mean": 426.20511068255325,
             "std": 80.8240640511118,
-            "median": 421.8849682800544,
+            "median": 421.88496828005435,
             "min": 181.483753985146,
             "max": 753.3426195583046
         },
@@ -97,7 +97,7 @@
         "Turbidity": {
             "mean": 3.966786169791058,
             "std": 0.7803824084854124,
-            "median": 3.955027562993039,
+            "median": 3.9550275629930396,
             "min": 1.45,
             "max": 6.739
         }
@@ -112,28 +112,29 @@
             "Conductivity": 592.6590209759507,
             "Organic_carbon": 8.606396746986945,
             "Trihalomethanes": 77.57745951035697,
-            "Turbidity": 3.8751652466165463
+            "Turbidity": 3.8751652466165467
         },
         "non_potable_sample": {
             "ph": 8.316765884214679,
-            "Hardness": 214.3733940856225,
-            "Solids": 22018.41744077529,
+            "Hardness": 214.37339408562252,
+            "Solids": 22018.417440775294,
             "Chloramines": 8.05933237743854,
             "Sulfate": 356.88613564305666,
             "Conductivity": 363.2665161642437,
-            "Organic_carbon": 18.436524495493305,
+            "Organic_carbon": 18.436524495493302,
             "Trihalomethanes": 100.34167436508008,
             "Turbidity": 4.628770536837084
         }
     },
     "models": {
         "logistic_regression": {
-            "name": "Logistic Regression (Baseline)",
-            "description": "Linear classifier serving as an interpretable baseline.",
+            "name": "Logistic Regression (Original)",
+            "description": "Linear classifier, no class weights.",
             "accuracy": 0.6097560975609756,
             "precision": 0.0,
             "recall": 0.0,
             "f1_score": 0.0,
+            "roc_auc": 0.548115234375,
             "confusion_matrix": [
                 [
                     400,
@@ -146,12 +147,13 @@
             ]
         },
         "random_forest_baseline": {
-            "name": "Random Forest Classifier (Baseline)",
-            "description": "Ensemble of 100 decision trees with default parameters.",
+            "name": "Random Forest (Default)",
+            "description": "100 trees with default parameters, no class weights.",
             "accuracy": 0.663109756097561,
             "precision": 0.6446280991735537,
             "recall": 0.3046875,
             "f1_score": 0.41379310344827586,
+            "roc_auc": 0.6411474609375,
             "confusion_matrix": [
                 [
                     357,
@@ -164,12 +166,13 @@
             ]
         },
         "random_forest_optimized": {
-            "name": "Random Forest Classifier (Optimized)",
-            "description": "Tuned ensemble evaluated with 5-fold cross-validation on training data.",
+            "name": "Random Forest (Tuned for Accuracy)",
+            "description": "Original GridSearchCV tuned for accuracy, no class weights.",
             "accuracy": 0.6615853658536586,
             "precision": 0.6416666666666667,
             "recall": 0.30078125,
             "f1_score": 0.4095744680851064,
+            "roc_auc": 0.649130859375,
             "confusion_matrix": [
                 [
                     357,
@@ -188,19 +191,76 @@
             "best_cv_accuracy": 0.6729007633587786
         }
     },
+    "tuning": {
+        "scoring": "f1",
+        "cv": "StratifiedKFold(n_splits=5, shuffle=True, random_state=42)",
+        "class_weight": "balanced (where the algorithm supports it)"
+    },
+    "improved_models": {
+        "logistic_regression": {
+            "accuracy": 0.5304878048780488,
+            "precision": 0.42168674698795183,
+            "recall": 0.546875,
+            "f1_score": 0.47619047619047616,
+            "roc_auc": 0.5487890624999999,
+            "confusion_matrix": [
+                [
+                    208,
+                    192
+                ],
+                [
+                    116,
+                    140
+                ]
+            ],
+            "name": "Logistic Regression",
+            "class_weight": "balanced",
+            "best_parameters": {
+                "C": 0.01
+            },
+            "cv_f1": 0.4179106420640091
+        },
+        "random_forest": {
+            "accuracy": 0.6371951219512195,
+            "precision": 0.5424528301886793,
+            "recall": 0.44921875,
+            "f1_score": 0.49145299145299143,
+            "roc_auc": 0.66296875,
+            "confusion_matrix": [
+                [
+                    303,
+                    97
+                ],
+                [
+                    141,
+                    115
+                ]
+            ],
+            "name": "Random Forest",
+            "class_weight": "balanced",
+            "best_parameters": {
+                "max_depth": "None",
+                "min_samples_split": 10,
+                "n_estimators": 200
+            },
+            "cv_f1": 0.5491186932345087
+        }
+    },
     "selected_model": {
-        "name": "Random Forest Classifier (Optimized)",
-        "selection_criterion": "Selected based on test F1-score and multi-class capability. Logistic Regression achieved 60.98% accuracy by predicting only the majority non-potable class (F1=0.00), while Random Forest effectively captured complex non-linear chemical relationships with a test accuracy of 66.16% and F1-score of 0.4096 (CV accuracy 67.29%).",
+        "key": "random_forest",
+        "name": "Random Forest (Balanced, F1-tuned)",
+        "selection_criterion": "Highest 5-fold stratified cross-validation F1-score on the training data (CV F1 = 0.5491). The test set was not used to choose the model.",
+        "importance_method": "Permutation importance on the test set (mean drop in F1 when a feature is shuffled)",
         "feature_importances": {
-            "Sulfate": 0.13616644951879972,
-            "ph": 0.13499533592889568,
-            "Hardness": 0.11846028070743211,
-            "Chloramines": 0.11556795490932488,
-            "Solids": 0.11486070268679005,
-            "Conductivity": 0.09704157007188352,
-            "Organic_carbon": 0.09567174809516767,
-            "Turbidity": 0.0937524972222094,
-            "Trihalomethanes": 0.09348346085949692
+            "Sulfate": 0.059791150629415,
+            "ph": 0.047694527685261064,
+            "Solids": 0.02147598008604835,
+            "Chloramines": 0.020146586882940843,
+            "Hardness": 0.01358905778639941,
+            "Organic_carbon": 0.004332878222912523,
+            "Trihalomethanes": -0.014693280779029849,
+            "Conductivity": -0.01914089029284659,
+            "Turbidity": -0.022465887205655045
         }
     }
 }
