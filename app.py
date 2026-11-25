@@ -15,6 +15,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import streamlit as st
+from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import adjusted_rand_score, silhouette_score
+from sklearn.preprocessing import StandardScaler
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Custom Theme Styling
@@ -164,6 +170,47 @@ def show_confusion(title, m, cmap):
     st.caption(f"TN: {tn} | FP: {fp} | FN: {fn} | TP: {tp}")
 
 
+@st.cache_data
+def scaled_features(data):
+    """Median-impute and standardise the 9 features (labels are NOT used) for unsupervised analysis."""
+    features = data.drop(columns=["Potability"])
+    filled = SimpleImputer(strategy="median").fit_transform(features)
+    return StandardScaler().fit_transform(filled)
+
+
+@st.cache_data
+def run_pca(data):
+    """Fit PCA with all components; return 2-D coordinates and explained-variance ratios."""
+    pca = PCA(random_state=42).fit(scaled_features(data))
+    coords = pca.transform(scaled_features(data))[:, :2]
+    return coords, pca.explained_variance_ratio_
+
+
+@st.cache_data
+def kmeans_sweep(data, k_max=10):
+    """Inertia (for the elbow plot) and silhouette score for k = 2..k_max."""
+    X_scaled = scaled_features(data)
+    inertias, silhouettes = {}, {}
+    for k in range(2, k_max + 1):
+        km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(X_scaled)
+        inertias[k] = float(km.inertia_)
+        silhouettes[k] = float(silhouette_score(X_scaled, km.labels_))
+    # k = 1 inertia is the total variance, needed for the first point of the elbow curve
+    inertias[1] = float(((X_scaled - X_scaled.mean(axis=0)) ** 2).sum())
+    return dict(sorted(inertias.items())), silhouettes
+
+
+def cluster_agreement(clusters, labels):
+    """Compare cluster ids with the real potability labels: cross-tab, purity and Adjusted Rand Index."""
+    table = pd.crosstab(
+        pd.Series(clusters, name="Cluster"),
+        pd.Series(labels, name="Actual").map({0: "Non-Potable (0)", 1: "Potable (1)"}),
+    )
+    purity = float(table.max(axis=1).sum() / table.values.sum())
+    ari = float(adjusted_rand_score(labels, clusters))
+    return table, purity, ari
+
+
 df = load_dataset()
 results = load_results()
 model_pipeline = load_trained_model()
@@ -203,6 +250,7 @@ with st.sidebar:
             "💧 Water Quality Predictor",
             "📊 Dataset Analysis",
             "🔬 Model Performance & Comparison",
+            "🧩 Unsupervised Analysis",
             "📖 Academic Report & Viva Guide",
         ],
         index=0,
@@ -732,6 +780,166 @@ elif navigation == "🔬 Model Performance & Comparison":
     with exp5:
         st.markdown("**ROC-AUC**")
         st.caption("Chance that a random potable sample gets a higher score than a random non-potable one. 0.5 = random guessing, 1.0 = perfect.")
+
+
+# -----------------------------------------------------------------------------
+# TAB: Unsupervised Analysis (PCA, K-Means, Hierarchical Clustering)
+# -----------------------------------------------------------------------------
+elif navigation == "🧩 Unsupervised Analysis":
+    st.markdown('<div class="main-title">🧩 Unsupervised Analysis</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">PCA, K-Means and hierarchical clustering on the 9 water-quality features. '
+        'The labels are <b>not</b> used to build the clusters; they are only used afterwards to check '
+        'whether the clusters match potability.</div>',
+        unsafe_allow_html=True,
+    )
+
+    y_all = df["Potability"].to_numpy()
+    majority_share = max(y_all.mean(), 1 - y_all.mean())
+    st.caption(
+        "Preprocessing: median imputation + StandardScaler on all 3,276 rows (features only). "
+        f"Majority-class share = {majority_share * 100:.1f}%, used below as the 'always guess one class' baseline."
+    )
+
+    # ---- 1. PCA ---------------------------------------------------------------
+    st.markdown("### 1. PCA: Do Potable and Non-Potable Samples Separate?")
+    coords, var_ratio = run_pca(df)
+    pca_col1, pca_col2 = st.columns(2)
+
+    with pca_col1:
+        fig_pca, ax_pca = plt.subplots(figsize=(6, 4.5))
+        for label, color, name in [(0, "#f87171", "Non-Potable (0)"), (1, "#10b981", "Potable (1)")]:
+            mask = y_all == label
+            ax_pca.scatter(coords[mask, 0], coords[mask, 1], s=10, alpha=0.4, color=color, label=name)
+        ax_pca.set_xlabel(f"PC1 ({var_ratio[0] * 100:.1f}% variance)")
+        ax_pca.set_ylabel(f"PC2 ({var_ratio[1] * 100:.1f}% variance)")
+        ax_pca.set_title("PCA Projection to 2-D", fontweight="bold")
+        ax_pca.legend()
+        sns.despine()
+        plt.tight_layout()
+        st.pyplot(fig_pca)
+        plt.close(fig_pca)
+
+    with pca_col2:
+        cumulative = np.cumsum(var_ratio)
+        components = np.arange(1, len(var_ratio) + 1)
+        fig_var, ax_var = plt.subplots(figsize=(6, 4.5))
+        ax_var.bar(components, var_ratio * 100, color="#38bdf8", label="Per component")
+        ax_var.plot(components, cumulative * 100, color="#0f172a", marker="o", label="Cumulative")
+        ax_var.set_xlabel("Principal component")
+        ax_var.set_ylabel("Explained variance (%)")
+        ax_var.set_xticks(components)
+        ax_var.set_title("Explained Variance", fontweight="bold")
+        ax_var.legend()
+        sns.despine()
+        plt.tight_layout()
+        st.pyplot(fig_var)
+        plt.close(fig_var)
+
+    n_for_90 = int(np.searchsorted(cumulative, 0.90) + 1)
+    st.info(
+        f"The first 2 components explain only **{cumulative[1] * 100:.1f}%** of the variance, and "
+        f"{n_for_90} of 9 components are needed to reach 90%. The two colours overlap almost completely, "
+        "so potable and non-potable samples cannot be separated by simple structure in the features. "
+        "This fits the modest accuracy (about 60-66%) of every classifier in the bake-off."
+    )
+
+    # ---- 2. K-Means ---------------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 2. K-Means: Elbow Method and Silhouette Score")
+    inertias, silhouettes = kmeans_sweep(df)
+    km_col1, km_col2 = st.columns(2)
+
+    with km_col1:
+        fig_elbow, ax_elbow = plt.subplots(figsize=(6, 4))
+        ax_elbow.plot(list(inertias.keys()), list(inertias.values()), marker="o", color="#0284c7")
+        ax_elbow.set_xlabel("Number of clusters (k)")
+        ax_elbow.set_ylabel("Inertia (within-cluster sum of squares)")
+        ax_elbow.set_title("Elbow Method", fontweight="bold")
+        sns.despine()
+        plt.tight_layout()
+        st.pyplot(fig_elbow)
+        plt.close(fig_elbow)
+
+    with km_col2:
+        fig_sil, ax_sil = plt.subplots(figsize=(6, 4))
+        ax_sil.plot(list(silhouettes.keys()), list(silhouettes.values()), marker="o", color="#4f46e5")
+        ax_sil.set_xlabel("Number of clusters (k)")
+        ax_sil.set_ylabel("Silhouette score")
+        ax_sil.set_title("Silhouette Score vs k", fontweight="bold")
+        sns.despine()
+        plt.tight_layout()
+        st.pyplot(fig_sil)
+        plt.close(fig_sil)
+
+    best_k = max(silhouettes, key=silhouettes.get)
+    st.caption(
+        f"Highest silhouette score: k = {best_k} ({silhouettes[best_k]:.3f}). "
+        "Silhouette ranges from -1 to 1; values close to 0 mean the clusters overlap. "
+        "The elbow curve has no sharp bend, which also points to weak cluster structure."
+    )
+
+    k_chosen = st.slider("Choose k to compare clusters with the real labels", min_value=2, max_value=6, value=2)
+    km_model = KMeans(n_clusters=k_chosen, n_init=10, random_state=42).fit(scaled_features(df))
+    table, purity, ari = cluster_agreement(km_model.labels_, y_all)
+
+    agree_col1, agree_col2 = st.columns([1, 1])
+    with agree_col1:
+        st.markdown(f"**Cluster vs actual label (k = {k_chosen})**")
+        st.table(table)
+    with agree_col2:
+        st.metric("Silhouette score", f"{silhouettes[k_chosen]:.3f}")
+        st.metric("Cluster purity", f"{purity * 100:.1f}%", help="Share of samples whose cluster's majority label equals their own label.")
+        st.metric("Adjusted Rand Index", f"{ari:.3f}", help="0 = clusters unrelated to labels, 1 = perfect match.")
+    st.caption(
+        f"Purity ({purity * 100:.1f}%) should be compared with the {majority_share * 100:.1f}% majority-class baseline, "
+        f"and the Adjusted Rand Index ({ari:.3f}) is close to 0 when clusters ignore the labels."
+    )
+
+    # ---- 3. Hierarchical clustering ------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 3. Hierarchical Clustering (Dendrogram on a Random Sample)")
+    sample_size = st.slider("Sample size (a full dendrogram of 3,276 rows would be unreadable)", 30, 150, 60, step=10)
+    sample_idx = np.random.RandomState(42).choice(len(df), size=sample_size, replace=False)
+    X_sample = scaled_features(df)[sample_idx]
+    y_sample = y_all[sample_idx]
+
+    Z = linkage(X_sample, method="ward")
+    leaf_names = ["P" if v == 1 else "N" for v in y_sample]
+    fig_dendro, ax_dendro = plt.subplots(figsize=(12, 4.5))
+    dendrogram(Z, labels=leaf_names, leaf_font_size=8, color_threshold=0, above_threshold_color="#475569", ax=ax_dendro)
+    for tick in ax_dendro.get_xmajorticklabels():
+        tick.set_color("#10b981" if tick.get_text() == "P" else "#ef4444")
+    ax_dendro.set_title(f"Ward Linkage Dendrogram ({sample_size} samples; P = Potable green, N = Non-Potable red)", fontweight="bold")
+    ax_dendro.set_ylabel("Distance")
+    sns.despine()
+    plt.tight_layout()
+    st.pyplot(fig_dendro)
+    plt.close(fig_dendro)
+
+    h_clusters = fcluster(Z, t=2, criterion="maxclust")
+    h_table, h_purity, h_ari = cluster_agreement(h_clusters, y_sample)
+    h_col1, h_col2 = st.columns([1, 1])
+    with h_col1:
+        st.markdown("**Cutting the tree into 2 clusters vs actual labels**")
+        st.table(h_table)
+    with h_col2:
+        h_majority = max(y_sample.mean(), 1 - y_sample.mean())
+        st.metric("Cluster purity", f"{h_purity * 100:.1f}%", help=f"Majority-class share in this sample: {h_majority * 100:.1f}%")
+        st.metric("Adjusted Rand Index", f"{h_ari:.3f}")
+    st.caption(
+        f"Compare the purity ({h_purity * 100:.1f}%) with the {h_majority * 100:.1f}% majority share of this sample: "
+        "if they are about equal, the hierarchical clusters tell us nothing about potability. "
+        "Change the sample size to see how unstable this small-sample result is."
+    )
+
+    # ---- 4. Takeaway -----------------------------------------------------------------
+    st.markdown("---")
+    st.success(
+        "**Takeaway for the viva:** PCA, K-Means and hierarchical clustering show no natural split between potable and "
+        "non-potable samples in this dataset. This is consistent with the modest scores of the supervised models and is "
+        "a reason to judge them with F1 and ROC-AUC instead of trusting accuracy alone."
+    )
 
 
 # -----------------------------------------------------------------------------
