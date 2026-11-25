@@ -5,7 +5,8 @@ Model Training, Preprocessing, Evaluation, and Optimization Pipeline
 Description:
   1. Loads the Water Potability dataset and splits it 80/20 (stratified).
   2. Trains the ORIGINAL models (no class weights, tuned for accuracy) so we have a "before" result.
-  3. Trains IMPROVED models: class_weight='balanced' (where supported) and
+  3. Trains 7 IMPROVED models (Logistic Regression, Decision Tree, KNN, Naive Bayes, SVM,
+     Random Forest, AdaBoost): class_weight='balanced' (where supported) and
      GridSearchCV that optimises F1-score with stratified 5-fold cross-validation.
   4. Picks the best model by cross-validation F1 (training data only, never the test set).
   5. Saves the chosen pipeline to water_model.joblib and all metrics to model_results.json.
@@ -20,7 +21,7 @@ import warnings
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
@@ -33,21 +34,50 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 
 warnings.filterwarnings("ignore")
 
 RANDOM_STATE = 42
 TARGET_COL = "Potability"
 
-# Models used for the IMPROVED (imbalance-aware) training.
+# Models compared in the "bake-off" (all syllabus classifiers, same split and same pipeline).
 # Each entry: display name, estimator, hyperparameter grid, supports class_weight?
+# KNN, Naive Bayes and AdaBoost have no class_weight option in scikit-learn.
 MODEL_CONFIGS = {
     "logistic_regression": (
         "Logistic Regression",
         LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_STATE),
         {"model__C": [0.01, 0.1, 1, 10]},
+        True,
+    ),
+    "decision_tree": (
+        "Decision Tree",
+        DecisionTreeClassifier(class_weight="balanced", random_state=RANDOM_STATE),
+        {"model__max_depth": [3, 5, 8, None], "model__min_samples_leaf": [1, 5, 10]},
+        True,
+    ),
+    "knn": (
+        "K-Nearest Neighbors",
+        KNeighborsClassifier(),
+        {"model__n_neighbors": [3, 5, 9, 15, 25]},
+        False,
+    ),
+    "naive_bayes": (
+        "Naive Bayes (Gaussian)",
+        GaussianNB(),
+        {"model__var_smoothing": [1e-9, 1e-7, 1e-5]},
+        False,
+    ),
+    "svm": (
+        "Support Vector Machine (RBF)",
+        SVC(class_weight="balanced", probability=True, random_state=RANDOM_STATE),
+        {"model__C": [0.5, 1, 5, 10], "model__gamma": ["scale", 0.05, 0.1]},
         True,
     ),
     "random_forest": (
@@ -59,6 +89,12 @@ MODEL_CONFIGS = {
             "model__min_samples_split": [2, 5, 10],
         },
         True,
+    ),
+    "adaboost": (
+        "AdaBoost",
+        AdaBoostClassifier(random_state=RANDOM_STATE),
+        {"model__n_estimators": [50, 100, 200], "model__learning_rate": [0.1, 0.5, 1.0]},
+        False,
     ),
 }
 
@@ -175,7 +211,7 @@ def main():
     print_metrics("Random Forest (tuned for accuracy)", rf_before_m)
 
     # --------------------------------------- 4. AFTER: imbalance-aware tuning
-    print("\n[4/6] AFTER: class_weight='balanced' + GridSearchCV(scoring=F1, StratifiedKFold)...")
+    print("\n[4/6] AFTER / BAKE-OFF: class_weight='balanced' + GridSearchCV(scoring=F1, StratifiedKFold)...")
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
     improved = {}
     fitted = {}

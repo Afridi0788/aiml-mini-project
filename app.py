@@ -568,8 +568,74 @@ elif navigation == "🔬 Model Performance & Comparison":
     improved_models = results["improved_models"]
     tuning = results["tuning"]
 
-    # ---- 1. Before vs After table -------------------------------------------
-    st.markdown(f"### 1. Before vs After (Held-Out Test Set: {test_size} Samples)")
+    # ---- 1. Syllabus model bake-off -------------------------------------------
+    st.markdown(f"### 1. Model Bake-off: 7 Classifiers on the Same Split (Test Set: {test_size} Samples)")
+    st.caption(
+        f"Same preprocessing pipeline, same train/test split. Every model was tuned with GridSearchCV "
+        f"(scoring = **{tuning['scoring'].upper()}**, {tuning['cv']}). "
+        "KNN, Naive Bayes and AdaBoost do not support `class_weight` in scikit-learn."
+    )
+    bake_rows = []
+    for key, m in improved_models.items():
+        bake_rows.append({
+            "Model": m["name"],
+            "CV F1 (train)": f"{m['cv_f1']:.4f}",
+            "Accuracy": f"{m['accuracy'] * 100:.2f}%",
+            "Precision": f"{m['precision']:.4f}",
+            "Recall": f"{m['recall']:.4f}",
+            "F1-Score": f"{m['f1_score']:.4f}",
+            "ROC-AUC": f"{m['roc_auc']:.4f}",
+            "class_weight": m["class_weight"],
+            "Best parameters": ", ".join(f"{k}={v}" for k, v in m["best_parameters"].items()) or "-",
+        })
+    bake_df = pd.DataFrame(bake_rows).sort_values("CV F1 (train)", ascending=False).reset_index(drop=True)
+    st.table(bake_df)
+
+    best_f1_key = max(improved_models, key=lambda k: improved_models[k]["f1_score"])
+    best_auc_key = max(improved_models, key=lambda k: improved_models[k]["roc_auc"])
+    st.caption(
+        f"Selected by CV F1: **{results['selected_model']['name']}**. "
+        f"Highest test F1: {improved_models[best_f1_key]['name']} ({improved_models[best_f1_key]['f1_score']:.4f}). "
+        f"Highest test ROC-AUC: {improved_models[best_auc_key]['name']} ({improved_models[best_auc_key]['roc_auc']:.4f}). "
+        "The differences between the top models are small, so no single model is clearly better on this dataset."
+    )
+
+    # F1 and ROC-AUC bar charts
+    short_names = [m["name"].split(" (")[0] for m in improved_models.values()]
+    bake_col1, bake_col2 = st.columns(2)
+    for col, metric_key, title, color in [
+        (bake_col1, "f1_score", "Test F1-Score", "#4f46e5"),
+        (bake_col2, "roc_auc", "Test ROC-AUC", "#0284c7"),
+    ]:
+        with col:
+            fig_bar, ax_bar = plt.subplots(figsize=(6, 4))
+            values = [m[metric_key] for m in improved_models.values()]
+            bars = ax_bar.barh(short_names, values, color=color)
+            ax_bar.set_xlim(0, 1)
+            ax_bar.invert_yaxis()
+            ax_bar.set_title(title, fontweight="bold")
+            for bar, val in zip(bars, values):
+                ax_bar.text(val + 0.01, bar.get_y() + bar.get_height() / 2, f"{val:.3f}", va="center", fontsize=9)
+            if metric_key == "roc_auc":
+                ax_bar.axvline(0.5, color="#94a3b8", linestyle="--", linewidth=1)
+                ax_bar.text(0.51, len(values) - 0.45, "random = 0.5", fontsize=8, color="#64748b")
+            sns.despine()
+            plt.tight_layout()
+            st.pyplot(fig_bar)
+            plt.close(fig_bar)
+
+    # Confusion matrices of all 7 models, three per row
+    st.markdown("#### Confusion Matrices of All Models")
+    model_items = list(improved_models.items())
+    for start in range(0, len(model_items), 3):
+        cm_cols = st.columns(3)
+        for col, (key, m) in zip(cm_cols, model_items[start:start + 3]):
+            with col:
+                show_confusion(m["name"].split(" (")[0], m, "Blues")
+
+    st.markdown("---")
+    # ---- 2. Before vs After table -------------------------------------------
+    st.markdown(f"### 2. Before vs After (Held-Out Test Set: {test_size} Samples)")
     st.caption(
         f"**Before** = original approach (no class weights, tuned for accuracy). "
         f"**After** = `class_weight='balanced'` where supported, GridSearchCV scoring = **{tuning['scoring'].upper()}**, "
@@ -586,9 +652,9 @@ elif navigation == "🔬 Model Performance & Comparison":
         rows.append(metrics_row(tag, m))
     st.table(pd.DataFrame(rows))
 
-    # ---- 2. Grouped bar chart: RF before vs after -----------------------------
+    # ---- 3. Grouped bar chart: RF before vs after -----------------------------
     st.markdown("---")
-    st.markdown("#### 2. Random Forest: Before vs After")
+    st.markdown("#### 3. Random Forest: Before vs After")
     metric_keys = ["accuracy", "precision", "recall", "f1_score", "roc_auc"]
     metric_labels = ["Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"]
     rf_before = original_models["random_forest_optimized"]
@@ -616,9 +682,9 @@ elif navigation == "🔬 Model Performance & Comparison":
         "This is the usual trade-off: the model now catches more potable samples at the cost of more false alarms."
     )
 
-    # ---- 3. Confusion matrices --------------------------------------------------
+    # ---- 4. Confusion matrices --------------------------------------------------
     st.markdown("---")
-    st.markdown(f"#### 3. Confusion Matrices (Held-Out Test Set: {test_size} Samples)")
+    st.markdown(f"#### 4. Before vs After Confusion Matrices (Held-Out Test Set: {test_size} Samples)")
     cm_row1 = st.columns(2)
     with cm_row1[0]:
         show_confusion("Logistic Regression: Before", original_models["logistic_regression"], "Blues")
@@ -630,10 +696,10 @@ elif navigation == "🔬 Model Performance & Comparison":
     with cm_row2[1]:
         show_confusion("Random Forest: After (balanced, F1-tuned)", rf_after, "Greens")
 
-    # ---- 4. Feature importances ---------------------------------------------------
+    # ---- 5. Feature importances ---------------------------------------------------
     st.markdown("---")
     selected = results["selected_model"]
-    st.markdown(f"#### 4. Feature Importances (Selected Model: {selected['name']})")
+    st.markdown(f"#### 5. Feature Importances (Selected Model: {selected['name']})")
     feat_imps = selected["feature_importances"]
     feat_df = pd.DataFrame({"Feature": list(feat_imps.keys()), "Importance": list(feat_imps.values())})
 
@@ -649,7 +715,7 @@ elif navigation == "🔬 Model Performance & Comparison":
     st.info(f"**Why this model?** {selected['selection_criterion']}")
 
     st.markdown("---")
-    st.markdown("#### 5. Educational Metrics Explanation (Viva Ready)")
+    st.markdown("#### 6. Educational Metrics Explanation (Viva Ready)")
     exp1, exp2, exp3, exp4, exp5 = st.columns(5)
     with exp1:
         st.markdown("**Accuracy**")
